@@ -1,0 +1,32 @@
+type: sys/EgressIntent
+major: 1
+fields:
+  channel: { text: {max: 200}, required: true }
+  target: { text: {max: 2000}, required: true }
+  payload: { blob: {}, required: true }
+  agent_summary: { text: {max: 500} }
+  payload_hash: { text: {max: 80}, required: true }
+  external_reversibility:
+    enum:
+      values: [undo, compensate, irreversible]
+    required: true
+  cost_cents: { int: {min: 0}, required: true }
+  target_taint:
+    enum:
+      values: [clean, external]
+    required: true
+  payload_taint:
+    enum:
+      values: [clean, external]
+    required: true
+  tainted_inputs:
+    list:
+      of: { text: {max: 80} }
+    required: true
+  status:
+    enum:
+      values: [pending, allowed, denied, executed, failed]
+    required: true
+view_hint:
+  title: "{channel}"
+  primary_fields: [channel, status, target]

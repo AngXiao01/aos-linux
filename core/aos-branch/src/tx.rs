@@ -101,6 +101,16 @@ impl Tx {
         &self.snapshot.branch
     }
 
+    /// Objects this transaction has staged, in first-write order.
+    pub fn staged_ids(&self) -> &[ObjectId] {
+        &self.order
+    }
+
+    /// A staged write, without recording a new read.
+    pub fn peek(&self, id: ObjectId) -> Option<&Object> {
+        self.staged.get(&id)
+    }
+
     fn observe<S: LogStore>(&mut self, g: &Graph<S>, id: ObjectId) -> Option<u64> {
         *self.observed.entry(id).or_insert_with(|| g.lookup(&self.snapshot, id).map(|o| o.version))
     }

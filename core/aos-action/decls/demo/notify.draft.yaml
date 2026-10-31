@@ -1,0 +1,15 @@
+action: demo.notify.draft
+version: 1
+provider: demo
+summary: "起草一条通知，生成待确认的出口意图"
+inputs: {}
+outputs: {}
+effects:
+  reads: []
+  writes: []
+  egress: ["notify:*"]
+reversibility: irreversible
+cost:
+  steps: "1"
+  cpu_seconds_estimate: "0"
+capability: "demo.notify.send"

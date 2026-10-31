@@ -284,6 +284,30 @@ impl<S: LogStore> Graph<S> {
         self.main.keys().copied()
     }
 
+    /// Ids visible on `branch`, tombstones included, in id order.
+    pub fn object_ids(&self, branch: &BranchName) -> Result<Vec<ObjectId>, Error> {
+        let snap = self.snapshot(branch)?;
+        let mut ids: Vec<ObjectId> = self.main.keys().copied().filter(|id| self.lookup(&snap, *id).is_some()).collect();
+        if !snap.branch.is_main() {
+            ids.extend(self.branch(&snap.branch)?.overlay.keys().copied());
+        }
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
+    }
+
+    /// Transactions applied on `branch`, oldest first. On `main`, copies
+    /// merged from a branch are included and the branch's own entries are not.
+    pub fn transactions(&self, branch: &BranchName) -> Result<Vec<Arc<TxRecord>>, Error> {
+        if branch.is_main() {
+            let mut seqs: Vec<u64> = self.txs.iter().filter(|(_, tx)| tx.branch.is_main()).map(|(s, _)| *s).collect();
+            seqs.sort_unstable();
+            return Ok(seqs.into_iter().map(|s| Arc::clone(&self.txs[&s])).collect());
+        }
+        let b = self.live_branch(branch)?;
+        Ok(b.txs.iter().map(|s| Arc::clone(&self.txs[s])).collect())
+    }
+
     // ---- writing the log ------------------------------------------------
 
     /// Appends entries and applies them. Callers validate first, so applying

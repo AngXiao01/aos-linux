@@ -1,0 +1,12 @@
+type: sys/ActionViolation
+major: 1
+fields:
+  action: { text: {max: 200}, required: true }
+  kind:
+    enum:
+      values: [undeclared_type, undeclared_effect, io, capability, precondition, resource]
+    required: true
+  detail: { text: {max: 2000}, required: true }
+view_hint:
+  title: "{kind}"
+  primary_fields: [action, kind]

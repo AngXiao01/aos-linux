@@ -34,3 +34,13 @@
 2026-10-31 | 提交时强制污点单调：对象的 `derived_from` 中任何一项带污点，对象自己必须带污点；`derived_from` 必须指向可见的版本 | §10 的 MUST，放在 TCB 里检查最便宜 | 可逆
 2026-10-31 | 分支名：`main`，或首段为 `[a-z][a-z0-9_-]*`、后续段为 `[A-Za-z0-9_-]+`、以 `/` 分隔，总长 ≤ 128；名字永不复用 | 任务分支形如 `task/<ULID>`；不复用让重放无歧义 | 可逆
 2026-10-31 | 性能（内存后端，release，本容器 4 核）：分叉 < 0.1 ms，1 万次写的提交 135 ms、撤销 133 ms，100 万个变更对象的变更单 1.3 s，均达 §7.8 目标。已知瓶颈：对象与 CBOR `Value` 树之间的转换约 12 µs/对象，导致百万对象合并 8.7 s、220 万次写的全量重放 26 s。A-3 引入持久索引后正常开机不再全量重放；若导入百万样本成为瓶颈，再改为直接流式编码 | 实测，`cargo run --release -p aos-branch --example bench` | 可逆
+2026-10-31 | M2 增加 `aos-cap` 与 `aos-action`。类型和动作声明用自写的 YAML 子集解析，不引入 serde | 声明只用块映射、流映射和列表；TCB 少一个依赖 | 可逆
+2026-10-31 | 能力令牌由 CapabilityService 持有的 P-256 密钥签名。被签名的字节是去掉 `signature` 后的规范 CBOR；使用 p256 的 ECDSA（内部 SHA-256），不再预先哈希 | 与 §18 的曲线一致；agent 拿不到签名密钥，所以不能给自己签发 | 可逆，但会改变已有签名
+2026-10-31 | 额度用整数记账：`steps` 为次数，cpu/gpu 为毫秒，money 为分（0.01 CNY）。代价表达式里的秒和元向上取整。签名覆盖的是授予上限；剩余额度放在服务的内存账本里，调用失败或提交失败时退回。签发子令牌时按授予量从父令牌的剩余额度里预留 | 浮点扣减对不齐；每次扣减都重签会让令牌身份变来变去。账本持久化留到服务化 | 可逆
+2026-10-31 | 只有 `user` 或 `system` 能签发令牌。子令牌不得包含 `sys.task.create`，也不得包含任何能覆盖它的模式（`*`、`sys.*`、`sys.task.*`）。对象范围只能变窄：父令牌限制了的键，子令牌必须保留并且 id 集合是子集 | §9.1 只能衰减 | 可逆
+2026-10-31 | 宿主 ABI 在 wasmtime 里实现，导入模块名 `aos`。参数放在 guest 内存里，用 CBOR；返回值是句柄或状态码，另有 `handle_len` / `handle_copy`。动作通过 `input` 读取自己的参数（§8.4 没有规定这一步）。`write` 的 patch 是字段名到新值的映射。`aos` 以外的任何 import 都视为直接 I/O | 不链接 WASI；ABI 保持可审计 | 可逆
+2026-10-31 | 每次调用的 fuel 上限是 1e8，内存 32 MiB，表 10000 项。超限、读写未声明类型、未声明出口、能力不符、前置条件失败都丢弃动作事务，并在同一分支写一条 `sys/ActionViolation` | §8.3、§A8。违规记录本身不是动作的写入，所以撤销动作不会抹掉它 | 可逆
+2026-10-31 | `intent_create` 只创建 `status: pending` 的 `sys/EgressIntent`，不评估策略、不对外发送。策略引擎和闸门属于 M3。载荷以规范 CBOR 的 blob 存放；`cost` 与 `lineage` 摊成 `cost_cents`、`target_taint`、`payload_taint`、`tainted_inputs` | v1 类型系统没有异构 map；M2 不产生外部效果 | 可逆
+2026-10-31 | `aos_query` 在当前分支快照上全表扫描，支持 from/where/select/order_by/limit/cursor（limit 最大 200，默认 50）。`member_of` 和 `aggregate` 返回错误。幂等键渲染后写入事务 inputs 的 `idempotency_key`；同一分支已有相同动作和相同键时直接返回上次事务，不再执行、不再扣额度 | 查询索引和数据集成员表属于后面的里程碑 | 可逆
+2026-10-31 | 动作产生的对象，污点取读集与调用参数 `literal_taint` 的上界，`derived_from` 记下读到的版本。`literal_taint` 默认 `clean`，由 M4 的 Agent Host 按模型会话填写 | §10。M2 还没有 Agent Host | 可逆
+2026-10-31 | Graph 增加 `object_ids` 与 `transactions`，Tx 增加 `staged_ids` 与 `peek`。只读，不改变日志格式 | 宿主查询和幂等查找需要看见分支上的对象和事务 | 可逆
