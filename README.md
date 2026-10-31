@@ -17,3 +17,9 @@ AOS（agent-native OS）的 Linux 版：在 Linux 内核之上建立独立的 AO
 ```bash
 cd core && cargo test
 ```
+
+§7.8 的性能目标用基准程序测量：
+
+```bash
+cd core && cargo run --release -p aos-branch --example bench
+```

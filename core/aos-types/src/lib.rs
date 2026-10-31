@@ -10,6 +10,7 @@ pub mod digest;
 pub mod id;
 pub mod object;
 pub mod schema;
+pub mod sim;
 pub mod template;
 pub mod time;
 pub mod ulid;

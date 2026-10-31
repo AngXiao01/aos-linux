@@ -91,14 +91,14 @@ impl From<SchemaError> for Error {
     }
 }
 
-/// Builds a map with text keys.
-pub(crate) fn record<'a>(entries: impl IntoIterator<Item = (&'a str, Value)>) -> Value {
+/// Builds a map with text keys (the form every AOS record uses).
+pub fn record<'a>(entries: impl IntoIterator<Item = (&'a str, Value)>) -> Value {
     Value::Map(entries.into_iter().map(|(k, v)| (Value::from(k), v)).collect())
 }
 
 /// Reads a map with text keys, tracking which keys were consumed so that
 /// [`Record::finish`] can reject unknown ones.
-pub(crate) struct Record<'a> {
+pub struct Record<'a> {
     map: &'a Map,
     used: Vec<&'static str>,
 }
@@ -146,32 +146,32 @@ impl<'a> Record<'a> {
     }
 }
 
-pub(crate) fn text(v: &Value) -> Result<&str, SchemaError> {
+pub fn text(v: &Value) -> Result<&str, SchemaError> {
     v.as_text().ok_or_else(|| SchemaError::new("expected text"))
 }
 
-pub(crate) fn uint(v: &Value) -> Result<u64, SchemaError> {
+pub fn uint(v: &Value) -> Result<u64, SchemaError> {
     v.as_u64().ok_or_else(|| SchemaError::new("expected unsigned integer"))
 }
 
-pub(crate) fn int(v: &Value) -> Result<i64, SchemaError> {
+pub fn int(v: &Value) -> Result<i64, SchemaError> {
     v.as_i64().ok_or_else(|| SchemaError::new("expected 64-bit signed integer"))
 }
 
-pub(crate) fn float(v: &Value) -> Result<f64, SchemaError> {
+pub fn float(v: &Value) -> Result<f64, SchemaError> {
     v.as_f64().ok_or_else(|| SchemaError::new("expected float"))
 }
 
-pub(crate) fn boolean(v: &Value) -> Result<bool, SchemaError> {
+pub fn boolean(v: &Value) -> Result<bool, SchemaError> {
     v.as_bool().ok_or_else(|| SchemaError::new("expected bool"))
 }
 
-pub(crate) fn array(v: &Value) -> Result<&[Value], SchemaError> {
+pub fn array(v: &Value) -> Result<&[Value], SchemaError> {
     v.as_array().ok_or_else(|| SchemaError::new("expected array"))
 }
 
 /// Text parsed with `FromStr`.
-pub(crate) fn parsed<T: FromStr>(v: &Value) -> Result<T, SchemaError>
+pub fn parsed<T: FromStr>(v: &Value) -> Result<T, SchemaError>
 where
     T::Err: fmt::Display,
 {
@@ -180,7 +180,7 @@ where
 }
 
 /// Text map keys, iterated in canonical order.
-pub(crate) fn text_entries(v: &Value) -> Result<Vec<(&str, &Value)>, SchemaError> {
+pub fn text_entries(v: &Value) -> Result<Vec<(&str, &Value)>, SchemaError> {
     let map = v.as_map().ok_or_else(|| SchemaError::new("expected map"))?;
     map.iter().map(|(k, v)| Ok((text(k).map_err(|e| e.within("<key>"))?, v))).collect()
 }

@@ -83,11 +83,11 @@ impl ToCbor for FieldValue {
     }
 }
 
-pub(crate) fn map_to_cbor(m: &BTreeMap<String, FieldValue>) -> Value {
+pub fn map_to_cbor(m: &BTreeMap<String, FieldValue>) -> Value {
     Value::Map(m.iter().map(|(k, v)| (Value::from(k.as_str()), v.to_cbor())).collect())
 }
 
-pub(crate) fn map_from_cbor(v: &Value) -> Result<BTreeMap<String, FieldValue>, SchemaError> {
+pub fn map_from_cbor(v: &Value) -> Result<BTreeMap<String, FieldValue>, SchemaError> {
     codec::text_entries(v)?
         .into_iter()
         .map(|(k, v)| Ok((k.to_owned(), FieldValue::from_cbor(v).map_err(|e| e.within(k))?)))

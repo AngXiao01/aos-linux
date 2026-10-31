@@ -12,7 +12,7 @@ mod float;
 
 use std::collections::BTreeMap;
 
-pub use decode::{DecodeError, MAX_DEPTH, decode};
+pub use decode::{DecodeError, MAX_DEPTH, decode, decode_prefix};
 pub use encode::{encode, encode_into};
 
 /// A CBOR data item, restricted to what AOS uses: 64-bit integers, byte and

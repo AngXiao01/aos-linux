@@ -50,12 +50,20 @@ impl std::error::Error for DecodeError {}
 
 /// Decodes exactly one deterministically encoded item spanning all of `bytes`.
 pub fn decode(bytes: &[u8]) -> Result<Value, DecodeError> {
-    let mut d = Decoder { buf: bytes, pos: 0 };
-    let value = d.item(0)?;
-    if d.pos != bytes.len() {
+    let (value, used) = decode_prefix(bytes)?;
+    if used != bytes.len() {
         return Err(DecodeError::TrailingBytes);
     }
     Ok(value)
+}
+
+/// Decodes the item at the start of `bytes`, returning it and the number of
+/// bytes it spans. Those bytes are its deterministic encoding, so they can be
+/// hashed directly instead of re-encoding the value.
+pub fn decode_prefix(bytes: &[u8]) -> Result<(Value, usize), DecodeError> {
+    let mut d = Decoder { buf: bytes, pos: 0 };
+    let value = d.item(0)?;
+    Ok((value, d.pos))
 }
 
 struct Decoder<'a> {

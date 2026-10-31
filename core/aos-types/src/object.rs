@@ -142,7 +142,8 @@ impl Object {
         out
     }
 
-    pub fn as_ref(&self) -> ObjRef {
+    /// A reference pinned to this version.
+    pub fn pinned_ref(&self) -> ObjRef {
         ObjRef::at(self.id, self.version)
     }
 }
