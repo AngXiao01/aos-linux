@@ -1,0 +1,20 @@
+action: demo.counter.inc
+version: 1
+provider: demo
+summary: "把计数器加一"
+inputs:
+  counter: { ref: demo/Counter, required: true }
+outputs:
+  counter: { ref: demo/Counter }
+effects:
+  reads: [demo/Counter]
+  writes: [demo/Counter]
+  egress: []
+reversibility: undo
+preconditions:
+  - "counter.value >= 0"
+cost:
+  steps: "1"
+  cpu_seconds_estimate: "1.5"
+capability: "demo.counter.write"
+idempotency_key: "{counter.id}:{counter.value}"

@@ -1,0 +1,15 @@
+action: demo.job.submit
+version: 1
+provider: demo
+summary: "提交一个本地计算作业"
+inputs: {}
+outputs: {}
+effects:
+  reads: []
+  writes: [sys/Job]
+  egress: ["compute:*"]
+reversibility: compensate
+cost:
+  steps: "1"
+  cpu_seconds_estimate: "0"
+capability: "demo.job.submit"

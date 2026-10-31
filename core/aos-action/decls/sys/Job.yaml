@@ -1,0 +1,15 @@
+type: sys/Job
+major: 1
+fields:
+  state:
+    enum:
+      values: [queued, running, succeeded, failed, cancelled]
+    required: true
+  kind:
+    enum:
+      values: [local, remote]
+    required: true
+  spec: { text: {max: 8000}, required: true }
+view_hint:
+  title: "{kind}"
+  primary_fields: [state, kind]

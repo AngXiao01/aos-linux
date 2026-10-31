@@ -1,0 +1,13 @@
+[package]
+name = "aos-types"
+version = "0.1.0"
+description = "AOS objects, types, deterministic CBOR and hashing (SPEC §6, §7.1)"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+sha2 = "0.11.1"
+
+[dev-dependencies]
+proptest = "1.12.0"

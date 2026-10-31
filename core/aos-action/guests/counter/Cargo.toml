@@ -1,0 +1,19 @@
+[workspace]
+
+[package]
+name = "demo-counter"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+aos-types = { path = "../../../aos-types" }
+
+[profile.release]
+lto = true
+opt-level = "z"
+panic = "abort"
+codegen-units = 1

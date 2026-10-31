@@ -1,0 +1,18 @@
+[package]
+name = "aos-action"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Action declarations, host ABI and the wasmtime sandbox (SPEC §8)"
+
+[dependencies]
+aos-types = { path = "../aos-types" }
+aos-log = { path = "../aos-log" }
+aos-branch = { path = "../aos-branch" }
+aos-cap = { path = "../aos-cap" }
+wasmtime = "36"
+
+[dev-dependencies]
+wat = "1"
+aos-types = { path = "../aos-types" }

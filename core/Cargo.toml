@@ -1,0 +1,8 @@
+[workspace]
+resolver = "3"
+members = ["aos-types", "aos-log", "aos-branch", "aos-cap", "aos-action"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97"
+publish = false

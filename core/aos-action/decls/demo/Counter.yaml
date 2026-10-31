@@ -1,0 +1,7 @@
+type: demo/Counter
+major: 1
+fields:
+  value: { int: {min: 0}, required: true }
+view_hint:
+  title: "{id}"
+  primary_fields: [value]

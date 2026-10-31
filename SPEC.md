@@ -113,7 +113,9 @@ flowchart LR
 | View Server | 给人渲染界面 | **否**（屏幕视为不可信） |
 | Adapters / Providers | 领域类型、动作、外部翻译 | **否** |
 
-规则：非 TCB 组件被攻破（例如 agent 被提示注入）时，最坏结果只能是**在分支里制造错误的内部修改**，这些修改可撤销，并且在变更单里可见。非 TCB 组件**不能**产生任何不可逆效果。
+规则：非 TCB 组件被攻破（例如 agent 被提示注入）时，最坏结果只能是**在分支里制造错误的内部修改**（可撤销，并且在变更单里可见），以及在用户签过的常设规则上限之内触发出口（§9.3）。非 TCB 组件**不能**产生任何未经 iPhone 签名授权的不可逆效果。
+
+aos-view 是唯一能以 `user` 身份写入的组件（§A9）。它被攻破时，还可以在 `main` 上以 `user` 身份做内部修改、创建任务；这些同样可撤销，出口同样受上面的约束。
 
 ---
 
@@ -125,32 +127,36 @@ flowchart LR
 {
   "id": "01JC8Z3K9Q6V2X4M7N1P0R5T8W",
   "type": "ml/DatasetVersion@1",
-  "version": 7,
+  "version": 1,
   "fields": {
     "dataset": {"ref": "01JC8Z..."},
-    "sample_count": 48213,
+    "number": 13,
     "parent": {"ref": "01JC8Y..."},
+    "members": {"blob": "sha256:9f2c..."},
+    "sample_count": 48213,
     "note": "去重后"
   },
-  "blobs": ["sha256:9f2c..."],
   "provenance": {
     "actor": "agent:task/01JC90...",
     "origin": "internal",
-    "taint": "clean",
-    "derived_from": ["01JC8Y...@6"],
+    "taint": "external",
+    "derived_from": ["01JC8Y...@1"],
     "tx": "01JC91..."
   },
   "sensitivity": "internal",
-  "extra": {}
+  "extra": {},
+  "tombstone": false
 }
 ```
 
 - `id`：ULID，全局唯一，不可变。
-- `version`：每次写入加 1，用于乐观并发和冲突检测。
+- `version`：每次写入加 1，用于乐观并发和冲突检测，不承载业务含义。业务上的版本号（例如数据集的第几版）用独立字段表示（§15.2）。
 - `provenance.actor`：`user`、`agent:task/<id>`、`adapter:<name>`、`system` 之一。人和 agent 都只是不同的 actor，**人的编辑同样记入日志、同样可撤销**。
-- `provenance.taint`：`clean` 或 `external`。由入口设置，并按 §10 传播。
+- `provenance.taint`：`clean` 或 `external`。由入口设置，并按 §10 传播。本例派生自导入的样本，因此带污点。
 - `sensitivity`：`public | internal | private | secret`。用户数据默认 `private`。
 - `extra`：允许存放类型未声明的字段（松散类型，见 §6.5）。
+- `tombstone`：为 `true` 表示该版本是删除标记（§6.3）。
+- 对象引用的 blob 就是字段中 `blob` 类型的值，不另设列表；blob 回收以此为准（§6.4）。
 
 ### 6.2 类型
 
@@ -159,20 +165,27 @@ type: ml/DatasetVersion
 major: 1
 fields:
   dataset:      { ref: ml/Dataset, required: true }
+  number:       { int: {min: 1}, required: true }
   parent:       { ref: ml/DatasetVersion }
-  sample_count: { int: {min: 0} }
+  members:      { blob: {}, required: true }
+  sample_count: { int: {min: 0}, required: true }
   note:         { text: {max: 2000} }
 relations:
-  samples: { many: ml/Sample, via: dataset_version }
+  children: { many: ml/DatasetVersion, via: parent }
 view_hint:
-  title: "{dataset.name} v{version}"
+  title: "{dataset.name} v{number}"
   primary_fields: [sample_count, note]
 ```
+
+- 字段类型：`bool`、`int`、`float`、`text`、`enum`、`ref`、`blob`、`timestamp`、`list`、`map`。字段要么有值，要么缺省，不存在 `null` 值。`text` 的 `max` 按 Unicode 字符计；`float` 字段只接受有限值。
+- **受约束类型**：`bool`、`int`、`float`、`enum`、`ref`、`blob`、`timestamp`，以及元素为受约束类型的 `list`。`text` 和 `map`（键是自由文本）不是受约束类型。§10 的指令隔离以此为界。
+- 类型里未声明的字段只能放进 `extra`。
+- `relations` 声明反向关系：本例的 `children` 是所有 `parent` 指向本对象的 DatasetVersion。
 
 ### 6.3 关系
 
 - 字段类型 `ref<Type>` 构成图的边。Object Store MUST 维护反向索引。
-- 删除对象 = 写入一个 tombstone 版本；被引用的对象 MUST NOT 被物理删除。
+- 删除对象 = 写入一个 `tombstone: true` 的新版本；被引用的对象 MUST NOT 被物理删除。
 
 ### 6.4 Blob
 
@@ -202,9 +215,9 @@ view_hint:
   "actor": "agent:task/01JC90...",
   "capability": "cap:01JC90...",
   "action": "ml.dataset.dedupe@1",
-  "inputs": {"version": "01JC8Y...@6", "threshold": 0.95},
+  "inputs": {"version": "01JC8Y...@1", "threshold": 0.95},
   "writes": [
-    {"id": "01JC8Z...", "prev_version": 6, "new_version": 7, "patch": "<CBOR patch>"}
+    {"id": "01JC8Z...", "prev_version": null, "new_version": 1, "patch": "<CBOR patch>"}
   ],
   "intents": [],
   "timestamp": "2026-11-02T01:13:44Z",
@@ -214,6 +227,7 @@ view_hint:
 
 - 日志 MUST 哈希链接：`hash = SHA-256(canonical_cbor(entry 去掉 hash 字段))`，确保篡改可被检测。
 - 序列化签名一律使用 RFC 8949 §4.2 的确定性 CBOR。
+- `prev_version: null` 表示这次写入创建了该对象。
 
 ### 7.2 事务
 
@@ -225,14 +239,15 @@ view_hint:
 - `main` 代表现实。每个 agent 任务 MUST 在自己的分支上工作，分支从 `main@seq` 分叉。
 - 分叉 MUST 是 O(1)：写时复制，分支只记录自己的写入，读取时叠加在基点之上。
 - 人在界面上直接做的编辑默认写入 `main`（内部、可撤销）。
+- 人对 agent 分支的编辑（例如审阅时修改一条待发的通知）写入该分支，actor 为 `user`。
 
 ### 7.4 变更单（Diff）
 
 变更单是给人审的语义差异，结构如下：
 
 1. **任务报告**：agent 自述做了什么、为什么做、哪里没把握（§14.6）。
-2. **出口意图**：按外部可逆性排序，依次为不可逆、可补偿、其他。每一项显示通道、目标、载荷摘要、代价、血缘（是否来自外部内容）。
-3. **对象变更**：按类型分组。大批量变更 MUST 汇总显示，例如"DatasetVersion v12：去重删除 3,214 条，重新标注 118 条"，并支持下钻查看明细。
+2. **出口意图**：按外部可逆性排序，依次为不可逆、可补偿、其他。每一项显示通道、目标、载荷预览（§12.3）、代价、目标污点与载荷污点（§11.1）。
+3. **对象变更**：按类型分组。大批量变更 MUST 汇总显示，例如"DatasetVersion v12 → v16：新增 6,020 条，去重删除 3,214 条，过滤删除 507 条，重新标注 118 条"，并支持下钻查看明细。
 4. **新类型与新动作**（如有）。
 
 ### 7.5 提交（合并到 main）
@@ -240,12 +255,14 @@ view_hint:
 1. 把分支变基到 `main` 当前头部。
 2. 冲突检测以对象版本为单位：两边都改了同一个对象的同一版本，就算冲突。
 3. **重新评估所有前置条件**。任何一条不满足，分支回到"待审"状态，并附上原因。
-4. 内部写入作为一个事务提交到 `main`。
+4. 内部写入作为一个原子组提交到 `main`：分支上的事务按原顺序追加，各自保留 tx id，因此之后可以单独撤销。组以一条提交记录结尾；崩溃恢复时，没有提交记录的组整体不生效。
 5. 尚未执行的出口意图交给出口闸门（§11）。内部写入先提交，出口后执行；出口失败不回滚内部写入，但失败结果作为对象写回。
 
 ### 7.6 撤销
 
-- `revert(tx)` 追加一个反向事务，日志永不删改。
+- `revert(tx)` 追加一个反向事务，日志永不删改。反向事务把 tx 写过的每个对象恢复到 tx 之前的版本内容；tx 创建的对象写为 tombstone。
+- 撤销以对象为粒度，与 §7.5 的冲突检测一致：如果 tx 之后有事务写过其中任何一个对象，revert MUST 失败，并列出这些依赖事务。不做级联撤销，由人或 agent 决定先撤销哪些。
+- 派生自被撤销写入的对象（沿 `derived_from` 直接或间接）不会被改写，而是在查询结果中标注"基于已撤销版本"。该标注由反向索引在查询时计算，不作为状态存储。
 - 如果被撤销的事务里包含**已执行**的出口：内部部分照常撤销；外部部分只有在声明了补偿动作时才能提供补偿，否则在界面上标注"外部效果已发生，无法撤回"。
 
 ### 7.7 保留与压缩
@@ -303,7 +320,7 @@ idempotency_key: "{version.id}:{threshold}"
 ### 8.3 强制规则（MUST）
 
 1. 动作代码只拿得到声明过的类型的句柄。读写未声明的类型，事务立即中止。
-2. 所有写入都经由事务。动作代码没有任何环境 I/O：没有网络、没有文件系统、没有时钟以外的系统调用。
+2. 所有写入都经由事务。动作代码没有任何环境 I/O：没有网络、没有文件系统、没有时钟、没有随机数。需要时间时，读运行时注入的只读输入 `tx_time`（事务开始时间），因此同一输入总是产生同一结果。
 3. 产生对外效果的唯一方式是创建 `EgressIntent` 对象（§11）。动作代码自己永远不能执行出口。
 4. 运行时在调用前校验能力令牌（§9），在调用前和提交前各评估一次前置条件。
 5. 违反任何一条，都中止事务并写入一条 `ActionViolation` 对象。
@@ -317,7 +334,7 @@ idempotency_key: "{version.id}:{threshold}"
   - `aos_write(object_id, expected_version, patch) -> new_version`
   - `aos_create(type, fields) -> object_id`
   - `aos_blob_read(hash, offset, len)` / `aos_blob_write(bytes) -> hash`
-  - `aos_intent_create(channel, payload_ref, meta) -> intent_id`
+  - `aos_intent_create(channel, target, payload, meta) -> intent_id`：`target` 为 `{ref, field}`（取某对象的字段值）或字面量，决定意图的 `target_taint`（§11.1）
   - `aos_job_submit(job_spec) -> job_id`
   - `aos_log(level, msg)`
 - 参数编码统一用 CBOR。
@@ -335,6 +352,12 @@ idempotency_key: "{version.id}:{threshold}"
 
 人和 agent 都能查询动作目录：列出动作、读声明、读示例、查"某类型能被哪些动作操作"。
 
+### 8.7 表达式与模板
+
+- 前置条件、代价、常设规则的 `when` 使用同一种表达式语言：CEL 的子集，只含字面量、字段路径、比较、算术、`&&` `||` `!`、`in`、`size()`。没有副作用，必然终止，不能读时钟和随机数。
+- 字段路径从动作输入或被评估的对象出发；沿 `ref` 跳转时按事务快照读取，读到的对象记入读集。
+- `idempotency_key`、`view_hint.title` 和 Lens 中的文字使用同一种模板：`{path}` 插值，`{{` 和 `}}` 转义花括号。
+
 ---
 
 ## 9. 能力与常设规则
@@ -347,7 +370,7 @@ idempotency_key: "{version.id}:{threshold}"
   "subject": "agent:task/01JC90...",
   "rights": ["ml.dataset.*", "ml.experiment.*", "ml.job.submit_local"],
   "object_scope": {"dataset": ["01JC8Z..."]},
-  "limits": {"cpu_hours": 8, "gpu_hours": 0, "money_cny": 0, "egress_channels": ["model:default"]},
+  "limits": {"steps": 500, "cpu_hours": 8, "gpu_hours": 0, "money_cny": 0, "egress_channels": ["model:default"]},
   "expires_at": "2026-11-02T09:00:00Z",
   "parent": "cap:user-root",
   "signature": "..."
@@ -357,11 +380,12 @@ idempotency_key: "{version.id}:{threshold}"
 - 只能衰减：子令牌的权利和上限 MUST 是父令牌的子集。
 - 每次调用动作、每次创建出口意图，都要校验令牌，并扣减额度。
 - agent 不能为自己签发令牌。
+- `sys.task.create` 权利只存在于用户根令牌，任何签发给 agent 的令牌都不得包含它（§14.1）。
 
 ### 9.2 任务授权
 
 1. 用户创建任务时，Agent Host 根据意图**提议**一组能力。
-2. 提议在常设规则范围内：自动授予。
+2. 提议落在某条常设规则的某个 `grants` 项之内（§9.3）：自动授予。
 3. 超出范围：任务开始时向 iPhone 请求**一次**确认，确认的是整组能力，而不是逐个动作。
 
 ### 9.3 常设规则
@@ -369,21 +393,29 @@ idempotency_key: "{version.id}:{threshold}"
 ```yaml
 policy: nightly-ml
 signed_by: iphone:pubkey/...
+grants:
+  - rights: ["ml.*"]
+    limits: {steps: 500, cpu_hours: 8, gpu_hours: 4, money_cny: 200,
+             egress_channels: ["fetch:registered-sources", "model:default", "compute:remote-gpu", "deliver:*", "notify:*"]}
+    max_ttl: 12h
 rules:
   - allow:   { channel: "fetch:registered-sources" }
   - allow:   { channel: "model:default", max_sensitivity: internal }
   - allow:   { channel: "compute:remote-gpu", max_cost_cny_per_day: 200 }
   - confirm: { channel: "deliver:*" }
-  - confirm: { channel: "notify:*", when: "recipient.taint == external" }
-  - deny:    { channel: "*", max_sensitivity: secret }
+  - confirm: { channel: "notify:*", when: "intent.lineage.target_taint == 'external'" }
+  - deny:    { channel: "*", min_sensitivity: secret }
 default: confirm
 ```
 
+- **规则匹配**：一条规则的所有条件同时满足才算匹配。`channel` 按通配符匹配；`max_sensitivity: X` 要求意图敏感度 ≤ X，`min_sensitivity: X` 要求 ≥ X；`max_cost_cny_per_day: N` 要求该通道当日已执行的代价加上本意图的代价 ≤ N；`when` 是 §8.7 的表达式。意图的敏感度 = 载荷引用的所有对象敏感度的上界。
 - 评估顺序：`deny` 优先于 `confirm`，`confirm` 优先于 `allow`。没有任何规则匹配时，走 `default`，默认值为 `confirm`。
+- **grants**：如果存在一个 grant，使任务能力提议的 `rights` 每一项都被它的 `rights` 覆盖、`limits` 每一项都不超过它、`egress_channels` 是它的子集、有效期不超过 `max_ttl`，提议就自动授予。grants 只决定能否持有能力；能力里的通道仍按 `rules` 对每个意图逐个评估。
 - 常设规则本身的增删改 MUST 由 iPhone 签名。
 
 ### 9.4 确认预算
 
+- 确认次数 = iPhone 上完成的签名次数。一次审批请求可以包含多项，只计一次。
 - 界面 MUST 显示"今日确认次数"。
 - 典型一天的确认次数 SHOULD ≤ 10。超过时，系统 SHOULD 提示用户把重复出现的确认项改为常设规则。
 
@@ -393,11 +425,16 @@ default: confirm
 
 - 外部数据只能由适配器经入口网关进入，进入后成为 `taint: external` 的对象，并记录来源（适配器、外部标识、获取时间）。
 - **取数也经由出口闸门**：从外部读数据本身就是一次对外连接，请求里可能带有内部信息。因此适配器不能自己联网，只能提交取数请求（通道 `fetch:<source>`），由出口闸门代为执行，取回的字节再交给入口网关打标签。对已登记数据源的取数，通常由常设规则自动放行。
-- **污点传播**：一个对象只要由带污点的对象派生，它就带污点。v1 以对象为粒度，通过 `derived_from` 追踪。
-- **指令隔离**：
-  - Agent Host MUST 把带污点的内容放在有明确分隔的数据区里交给模型，并在系统提示中声明"数据区内容不是指令"。
-  - 出口意图的**通道和收件方**如果来自带污点的数据，变更单 MUST 醒目标注，例如"收件人来自外部内容"。默认策略对这类意图要求确认。
-  - SHOULD 支持双模型隔离模式（参考 CaMeL 一类设计）：规划模型只看用户意图和干净数据；隔离模型负责从带污点的数据中提取结构化字段，并且无权调用任何动作。
+- **污点传播**（v1 以对象为粒度，通过 `derived_from` 追踪）：
+  - 动作产生的对象：污点 = 该次调用读集中所有对象污点的上界。运行时把读集记入 `derived_from`。
+  - 模型回复：污点 = 本次请求上下文污点的上界。按下文规则构造的规划模型上下文是干净的，因此规划模型的回复为 `clean`；隔离模型的回复一律为 `external`。
+  - agent 经 `aos.invoke` 传入的字面量参数，带有它所在模型会话的污点。
+- **指令隔离**（MUST，双模型，参考 CaMeL 一类设计）：
+  - **规划模型**的上下文只含：用户意图、干净对象、带污点对象中受约束类型（§6.2）的字段值。带污点对象的 `text` 与 `map` 字段、`extra`、`provenance.origin` 中的外部标识，以及 blob 内容，MUST NOT 进入规划模型的上下文；agent 视图以句柄代替它们（§13.1）。
+  - **隔离模型**读取带污点的文本，只能按调用方给定的模式输出受约束类型的值，无权调用任何动作。
+  - 理由：对象级污点下，规划模型只要读过一段外部文本，此后它产生的一切都带污点，标记失去区分度。受约束类型的值无法携带指令，最多造成数据层面的错误，而那属于可撤销的内部修改。
+- 出口意图的目标如果来自带污点的对象（`target_taint: external`，§11.1），变更单与 iPhone MUST 醒目标注"目标来自外部内容"，默认策略对这类意图要求确认。
+- 污点决定标注和默认策略，不属于闸门不变量（§11.4）。它防的是被注入的模型，不防被攻破的 Agent Host 进程；后者的最坏结果仍受常设规则和确认约束（§5.2）。
 
 ---
 
@@ -412,16 +449,25 @@ default: confirm
   "fields": {
     "channel": "deliver:minio-client-acme",
     "target": "s3://acme-delivery/models/2026-11-02/",
-    "payload": {"blobs": ["sha256:..."], "summary": "量化模型 int8，1 个文件，14.2 MB"},
+    "payload": {
+      "kind": "files",
+      "files": [{"name": "model-int8.onnx", "blob": "sha256:...", "size": 14893056}]
+    },
+    "agent_summary": "量化模型 int8，1 个文件",
     "payload_hash": "sha256:...",
     "external_reversibility": "irreversible",
     "cost": {"money_cny": 0},
-    "lineage": {"tainted_inputs": []},
-    "policy_decision": null,
+    "lineage": {"target_taint": "clean", "payload_taint": "external", "tainted_inputs": ["01JC93...@1"]},
     "status": "pending"
   }
 }
 ```
+
+- `payload.kind`：`text`（正文）、`files`（文件列表：名称、blob、大小）或 `structured`（值为受约束类型或文本的键值）。Confirm Service 按 kind 生成审批预览（§12.3）。
+- `payload_hash = SHA-256(canonical_cbor({channel, target, payload}))`，通道和目标都在覆盖范围内。
+- `agent_summary`：动作给出的说明，只作参考；iPhone 上标注为"agent 自述"。
+- `lineage.target_taint`：目标的污点。`target` 以 `{ref, field}` 给出时，取该对象的污点；以字面量给出时，取本次调用读集与调用方会话污点（§10）的上界。`payload_taint`：载荷引用的所有对象污点的上界。`tainted_inputs`：读集中带污点的对象。
+- `policy_decision` 在评估之后写入，之前缺省。
 
 ### 11.2 通道注册
 
@@ -435,6 +481,7 @@ default: confirm
   - `confirm`：挂起，在提交时随变更单一起审批。
   - `deny`：立即拒绝。
 - 已即时执行的意图同样出现在变更单里，标为"已执行"，因为它们的外部效果已经发生。
+- 在 `main` 上产生的 confirm 类意图（例如人直接调用带出口的动作）没有提交步骤：立即发起单项审批请求，签名之前保持 `pending`。
 
 ```mermaid
 sequenceDiagram
@@ -464,7 +511,7 @@ sequenceDiagram
 ### 11.4 闸门不变量（MUST）
 
 1. 出口闸门是系统里**唯一**拥有对外网络或对外写能力的组件（平台级实现见 §A6）。
-2. 执行前重新计算载荷哈希，必须与签名中的哈希一致。用来防止"审的是 A，发出去的是 B"。
+2. 执行前重新计算 `payload_hash`（覆盖通道、目标和载荷，§11.1），必须与签名中的一致。用来防止"审的是 A，发出去的是 B"，包括换掉收件方。
 3. 每份审批签名只能使用一次，带过期时间，并绑定请求 nonce。
 4. 每次执行（成功或失败）都写入日志，回执作为入口对象写回。
 
@@ -488,6 +535,7 @@ sequenceDiagram
 2. iOS app 扫码后，在 Secure Enclave 中生成 P-256 私钥，访问控制为 `.privateKeyUsage + .biometryCurrentSet`（用户可在设置里改为 `.userPresence`，允许用密码回退）。
 3. 双方通过 TLS 交换公钥，证书钉扎到配对时的公钥，并互相签名确认 nonce。
 4. OS 把 iPhone 公钥存为审批信任根。重新配对本身需要用旧 iPhone 签名；旧设备丢失时，走离线恢复码流程（v1：配对时生成并让用户抄写的一次性恢复码）。
+5. 屏幕不可信，所以配对属于首次信任（TOFU）。为了让二维码被篡改的途径最少，首次配对只能在首次启动、所有出口通道仍为 `deny`、尚未发生任何入口时进行；用恢复码重新配对时，同样先把所有出口通道置回 `deny`。
 
 ### 12.3 审批请求
 
@@ -496,14 +544,19 @@ ApprovalRequest = canonical_cbor({
   request_id, created_at, expires_at, nonce,
   kind: "egress" | "task_capabilities" | "policy_change",
   summary: [ {label, value} ... ],     // ≤ 12 行，纯结构化文本
-  items: [ {channel, target, payload_hash, cost, external_reversibility, tainted: bool} ... ],
+  items: [ {channel, target, payload_hash, preview, agent_summary, cost,
+            external_reversibility, target_tainted: bool, payload_tainted: bool} ... ],
   branch, diff_hash
 })
 签名：OS 私钥签名整个请求
 ```
 
+- `summary` 与 `items` 中除 `agent_summary` 以外的内容，MUST 由 Confirm Service 根据意图字段和载荷字节生成，不得采用任何非 TCB 组件提供的文字。
+- `preview` 按载荷类型生成：`text` 显示正文（≤ 1000 字符，超出截断并注明总长）；`files` 显示每个文件的名称、大小和哈希前 12 位；`structured` 显示展平后的键值（≤ 12 行）。
+- `kind` 为 `task_capabilities` 或 `policy_change` 时，`items` 换成能力提议或规则变更的结构化内容，同样由 Confirm Service 生成。
 - iPhone app MUST 原生渲染 `summary` 和 `items`，不得渲染 OS 发来的 HTML 或图片。
-- `tainted: true` 的项 MUST 以醒目样式显示。
+- `agent_summary` MUST 以次要样式显示，并标注"agent 自述"。
+- `target_tainted: true` 的项 MUST 以醒目样式显示。
 
 ### 12.4 签名
 
@@ -538,6 +591,7 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 | `aos.catalog.types` / `aos.catalog.actions` | 列出类型、动作及其声明 |
 | `aos.query` | 结构化查询（下例） |
 | `aos.read` | 按 id 读取对象（可指定版本） |
+| `aos.extract` | 把带污点文本的句柄连同输出模式交给隔离模型，返回受约束类型的值（§10） |
 | `aos.invoke` | 在当前任务分支中调用动作 |
 | `aos.job.status` | 查询作业状态 |
 | `aos.diff` | 读取当前分支的变更单 |
@@ -550,8 +604,8 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 {
   "from": "ml/Sample",
   "where": {"all": [
-    {"field": "dataset_version", "eq": {"ref": "01JC8Z...@7"}},
-    {"field": "label", "in": ["fall", "lying"]},
+    {"member_of": {"ref": "01JC8Z...", "field": "members"}},
+    {"field": "label", "in": [{"ref": "01JC7A..."}, {"ref": "01JC7B..."}]},
     {"field": "quality_score", "lt": 0.3}
   ]},
   "select": ["id", "label", "quality_score", "provenance.taint"],
@@ -563,6 +617,8 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 
 - 结果一律分页，默认 `limit` 为 50。查询必须**按需拉取**，不能整库推送。
 - SHOULD 支持 `aggregate`（count、histogram、mean），让 agent 先看分布、再看明细。
+- `member_of`：对象出现在某个对象的成员表 blob 中（§15.2）。
+- 返回给规划模型会话的结果中，带污点对象的非受约束内容一律替换为句柄（§10）。agent 视图按会话记录返回过的内容的污点上界，供 §10 计算模型回复和字面量参数的污点。
 
 ### 13.2 人的界面
 
@@ -574,9 +630,11 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 
 视觉原则：安静、以排版为主、没有应用外壳。屏幕被视为不可信，安全相关的信息以 iPhone 上显示的为准。
 
+人的界面把带污点的内容一律作为纯文本渲染；页面使用严格的内容安全策略（CSP），禁止内联脚本和外部来源。
+
 ### 13.3 对等要求
 
-- 动作目录里的每个动作，人在界面上都能调用；人能做的每件事，agent 都能通过动作完成。唯一例外是确认，确认只能在 iPhone 上完成。
+- 动作目录里的每个动作，人在界面上都能调用；人能做的每件事，agent 都能通过动作完成。例外有两个：确认只能在 iPhone 上完成；创建任务只能由人发起（§14.1）。
 - 测试：自动检查动作目录的界面覆盖率达到 100%。
 
 ---
@@ -587,6 +645,8 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 
 `sys/Task` 对象包含以下字段：意图文本、计划（`now` / `at` / `cron`）、分支、能力令牌、状态、记录引用、报告引用。
 
+`sys/Task` 只能由 actor `user` 在 `main` 上创建（动作 `sys.task.create`，所需权利不可委派，§9.1）。agent 不能为自己或别人创建任务。
+
 ### 14.2 调度
 
 - 支持定时和周期任务（例如每晚 23:00 开跑）。
@@ -594,7 +654,7 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 
 ### 14.3 模型
 
-- 模型提供方可配置。v1 默认使用云端 API 模型；本地模型 MAY 用于分类、提取等轻任务。
+- 模型提供方可配置。v1 默认使用云端 API 模型；本地模型 MAY 用于分类、提取等轻任务，包括担任 §10 的隔离模型。
 - 每次模型调用都按 §11.5 记账。
 - 类型目录和动作目录作为稳定前缀放在上下文开头，以便利用提示缓存。
 
@@ -628,7 +688,7 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 > 晚上 22:30，用户输入意图：
 > "把今天新采集的跌倒检测数据并入训练集：去重、剔除低质量样本、校验标注一致性；用新数据跑三组超参；最好的一组做 int8 量化，评测量化前后的指标；如果 mAP 掉点不超过 1%，准备好给客户的交付包。另外，标注一致性低于 0.8 的采集员，起草一条补采通知。"
 >
-> 次日 08:30，出口队列里有一张变更单：数据集 v13 的汇总差异、三组实验对比表、量化评测结果、一个**待确认**的交付意图、两条**待确认**的补采通知。用户审阅 5 分钟，在 iPhone 上批准交付，修改一条通知后批准。
+> 次日 08:30，出口队列里有一张变更单：数据集新版本的汇总差异、三组实验对比表、量化评测结果、一个**待确认**的交付意图、两条**待确认**的补采通知。用户审阅 5 分钟，在 iPhone 上批准交付，修改一条通知后批准。
 
 ### 15.2 类型
 
@@ -638,9 +698,10 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 | `ml/Collector` | 采集员、联系方式（出口通道引用） |
 | `ml/CollectionTask` | 采集要求、指派对象、截止时间、状态 |
 | `ml/RawAsset` | blob、来源、采集时间、采集员 |
-| `ml/Dataset` | 名称、任务类型、标签集合 |
-| `ml/DatasetVersion` | 父版本、样本数、变更说明 |
-| `ml/Sample` | 资产引用、标签、质量分、切分归属 |
+| `ml/Dataset` | 名称、任务类型（不存"当前版本"指针，见下） |
+| `ml/Label` | 所属数据集、名称（由用户定义） |
+| `ml/DatasetVersion` | 数据集、序号、父版本、成员表 blob、样本数、变更说明（不可变） |
+| `ml/Sample` | 资产引用、标签（引用 `ml/Label`）、质量分（不可变） |
 | `ml/FilterRule` | 规则表达式、阈值 |
 | `ml/ValidationReport` | 一致性指标、问题样本列表 |
 | `ml/Experiment` | 数据集版本、代码版本、超参空间 |
@@ -653,6 +714,13 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 | `ml/Delivery` | 客户、内容清单、交付通道、状态 |
 | `sys/Job` | 状态机、计算资源、代价 |
 
+- **DatasetVersion 不可变**：每个改变样本集合的动作都产出一个新的 DatasetVersion，`parent` 指向上一版，`number` 递增。
+- **成员表**：按样本 id 排序的（样本 id, 切分归属）序列，存为 blob，用 FastCDC 分块，版本之间未变的块自动去重。100 万样本约 17 MB（id 16 字节 + 切分 1 字节）。
+- **Sample 不可变**，跨版本共享：改标注 = 创建新的 Sample（`derived_from` 指向旧样本），新版本的成员表指向新 id，旧版本因此保持原样。
+- **当前版本**：某数据集下序号最大、不是 tombstone、且不"基于已撤销版本"（§7.6）的 DatasetVersion，在查询时计算。不在 Dataset 上存指针，是为了避免每出一个新版本都改写同一个对象，让撤销互相冲突。
+- **标签**用 `ml/Label` 对象而不是文本：样本大多从外部导入、带污点，文本标签进不了规划模型的上下文（§10），引用可以。
+- 变更单汇总：比较基点版本与最终版本的成员表，按产生每一步的动作分组（§7.4）。
+
 ### 15.3 动作
 
 | 动作 | 可逆性 | 出口 | 说明 |
@@ -661,13 +729,14 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 | `ml.dataset.add_assets` | undo | 无 | 产出新版本 |
 | `ml.dataset.dedupe` | undo | 无 | |
 | `ml.dataset.filter` | undo | 无 | 按 FilterRule 过滤 |
-| `ml.dataset.relabel` | undo | 无 | |
+| `ml.dataset.relabel` | undo | 无 | 创建新的 Sample 与新版本 |
 | `ml.dataset.validate` | undo | 无 | 只读，产出报告 |
-| `ml.dataset.split` | undo | 无 | |
+| `ml.dataset.split` | undo | 无 | 产出新版本，切分归属写在成员表里 |
 | `ml.experiment.create` | undo | 无 | |
 | `ml.run.launch_local` | undo | 无 | 本地作业，CPU |
 | `ml.run.launch_remote` | compensate | `compute:*` | 远程 GPU，取消即补偿 |
-| `ml.eval.run` | undo / compensate | 视计算位置而定 | |
+| `ml.eval.run_local` | undo | 无 | 本地作业 |
+| `ml.eval.run_remote` | compensate | `compute:*` | 远程 GPU，取消即补偿 |
 | `ml.model.quantize` | undo | 无 | int8 训练后量化（本地） |
 | `ml.collection.assign` | irreversible | `notify:*` | 给采集员发通知 |
 | `ml.delivery.prepare` | undo | 无 | 只是打包 |
@@ -699,8 +768,8 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 1. 只产生 1 个任务分支，变更单结构符合 §7.4。
 2. 待确认的出口意图恰好 3 个（1 个交付、2 个通知）。在确认之前，这 3 个意图都**没有**产生外部效果。
 3. 用开发确认器批准后，测试适配器收到的载荷哈希与签名一致；篡改载荷后，闸门拒绝执行。
-4. 撤销数据集 v13 的去重事务后，样本数恢复，且后续实验对象被标记为"基于已撤销版本"。
-5. 整个流程消耗的确认次数 ≤ 3。
+4. 撤销去重事务后：它产出的 DatasetVersion 变为 tombstone；数据集的当前版本回到去重之前，样本数随之恢复；直接或间接派生自它的对象（后续版本、实验、运行、量化模型、交付包）在查询结果中标注"基于已撤销版本"。
+5. 整个流程消耗的确认次数（§9.4）≤ 3。测试使用的常设规则含有覆盖本任务能力提议的 `grants`。
 
 ---
 
@@ -713,11 +782,11 @@ agent 只通过以下工具和系统交互。**没有截图工具，没有坐标
 - **日志**：哈希链完整；篡改任何一条都能被检测到。
 - **事务**：原子性；并发写冲突的检测（基于属性的测试，≥ 10⁴ 个随机用例）。
 - **分支**：分叉 O(1)；分支隔离；变基正确；前置条件在提交时重新评估。
-- **撤销**：对任意内部事务序列做随机撤销，状态与重放结果一致（属性测试）。
+- **撤销**：对任意内部事务序列随机撤销。若之后没有事务写过同一对象，撤销后的状态与跳过该事务重放的结果一致（tombstone 视同不存在，不比较版本号）；否则撤销被拒绝，并列出依赖事务（属性测试）。
 - **能力**：衰减不变量；越权调用被拒；额度扣减准确。
-- **策略**：deny > confirm > allow 的优先级；默认走 confirm。
-- **出口**：没有放行就不执行；载荷篡改被拒；签名重放被拒；过期签名被拒。
-- **污点**：传播正确；收件方来自外部内容时触发 confirm。
+- **策略**：deny > confirm > allow 的优先级；默认走 confirm；规则内条件全部满足才匹配；grants 覆盖判定正确。
+- **出口**：没有放行就不执行；载荷、通道或目标被替换都被拒；签名重放被拒；过期签名被拒；审批请求里的文字只来自 Confirm Service（`agent_summary` 除外，且带标注）。
+- **污点**：动作读集与模型回复的传播正确；规划模型会话收不到带污点的非受约束内容；`target_taint` 为 `external` 时触发 confirm。
 - **动作沙箱**：读写未声明类型 → 中止；尝试直接 I/O → 中止并记录违规。
 
 ### 16.2 平台安全测试
@@ -869,7 +938,8 @@ tests/           一致性套件与平台安全测试
 | aos-runtime | aos-runtime | 无 | 无 | wasmtime 沙箱 + seccomp |
 | aos-jobs | aos-jobs | 无 | 通过沙箱挂载 | 每个作业放进 bubblewrap/nsjail |
 | aos-agent | aos-agent | 无（模型调用经 aos-egress） | 无 | seccomp |
-| aos-view | aos-view | 只监听 127.0.0.1 | 静态资源（只读） | seccomp |
+| aos-view | aos-view | 监听 127.0.0.1（只有 aos-kiosk 能连）与宿主访问端口（§A9） | 静态资源（只读） | seccomp |
+| aos-kiosk | aos-kiosk | 只能连 `127.0.0.1:view_port` | 无 | seccomp |
 | ingress adapters | aos-ing-<name> | **无**（外部数据由 aos-egress 代取，见 §A6） | 无 | seccomp |
 
 服务之间只通过 Unix socket 通信，每个 socket 的访问权限按"最少必要"配置。
@@ -881,6 +951,8 @@ tests/           一致性套件与平台安全测试
 这是第二部分最关键的一节。
 
 - 使用 nftables 设置 `OUTPUT` 链默认 **drop**，只放行 `skuid aos-egress` 的出站流量。回环接口只开放给声明过的本地端口。
+- 回环上的 `view_port` 只放行 `skuid aos-kiosk`。服务之间不走 TCP 回环，只走 Unix socket，并用 `SO_PEERCRED` 识别对端。
+- aos-confirm 只能应答：放行 `ct state established`、`skuid aos-confirm`、源端口为 `confirm_port` 的包；它不能主动发起连接。
 - DNS 解析同样只由 aos-egress 完成，其余进程没有可用的解析器。
 - 作业沙箱和适配器进程运行在**没有网络接口**的网络命名空间里。
 - **入口也经由 aos-egress 取数**（§10）：适配器只能向 aos-egress 提交取数请求，走通道 `fetch:<source>`，由常设规则覆盖（例如对已登记数据源自动放行）。取回的字节交给入口网关打标签。
@@ -918,7 +990,8 @@ tests/           一致性套件与平台安全测试
 
 ## A9. 人的界面与 iPhone 连接
 
-- kiosk 浏览器显示 `aos-view`。为了开发方便，`aos-view` MAY 通过端口转发让宿主机浏览器也能访问。第一部分本来就把屏幕视为不可信，所以这样做不削弱安全性。
+- kiosk 浏览器显示 `aos-view`。aos-view 以 `user` 身份处理请求，依据是连接来源：127.0.0.1 上只有 aos-kiosk 能连（§A6）。
+- 宿主浏览器访问（方便开发，也是 §A12 的降级方案）：aos-view 在客户机网卡上另开一个端口，`run-aos.sh` 只把它转发到宿主的 127.0.0.1，不绑定局域网地址。浏览器必须先输入访问码：访问码每次开机随机生成，只显示在 kiosk 屏幕上，验证通过后存为 HttpOnly cookie。aos-view MUST 校验 `Host` 与 `Origin` 头，防止宿主上的其他网页借用户的浏览器发请求（CSRF、DNS rebinding）。
 - **iPhone 连接**：
   - QEMU user 模式网络下，mDNS 无法穿透 NAT，因此配对二维码 MUST 直接包含宿主机的局域网 IP 和转发端口。
   - `run-aos.sh` 负责探测宿主机局域网 IP，转发 `confirm_port`，并把 IP 和端口写入虚拟机能读取的配置。
@@ -961,7 +1034,7 @@ tests/           一致性套件与平台安全测试
 
 | 风险 | 缓解 |
 |---|---|
-| kiosk 浏览器在 virtio-gpu 上性能差 | 降级为宿主机浏览器访问（安全性不受影响） |
+| kiosk 浏览器在 virtio-gpu 上性能差 | 降级为宿主机浏览器访问（经访问码认证，§A9） |
 | CPU 训练太慢，影响 E2E 测试 | E2E 使用极小的合成数据集；完整演示放在夜间运行 |
 | 端口转发和局域网环境复杂（公司网络隔离） | v2 提供中继传输；v1 在 `DECISIONS.md` 里记录已验证可用的网络环境 |
 | 出口强制有遗漏（例如 IPv6、raw socket） | S1 覆盖 IPv4、IPv6、UDP、raw socket；seccomp 禁止创建 raw socket |
