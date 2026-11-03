@@ -4,6 +4,8 @@ AOS（agent-native OS）的 Linux 版：在 Linux 内核之上建立独立的 AO
 
 本仓库自成一体，不依赖任何其他仓库。唯一的规格文件是 [`SPEC.md`](SPEC.md)：第一部分是系统语义，第二部分是 Linux + QEMU 上的平台实现。实现中的决定写在 [`DECISIONS.md`](DECISIONS.md)，规格矛盾的处理写在 [`QUESTIONS.md`](QUESTIONS.md)。当前没有未决问题。
 
+许可是 MIT，全文见 [`LICENSE`](LICENSE)。版权持有人 Ang Xiao，2026。
+
 `main` 上有的是核心库 `core/`，做到 §17 的 M2。镜像、服务拆分、人的界面和 iPhone 确认器还没有目录；那些属于 §A11 的平台里程碑。
 
 ## 现状
