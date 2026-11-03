@@ -407,6 +407,9 @@ impl<'a> Parser<'a> {
         if self.peek() == Some('"') {
             return Ok(Node::Text(self.parse_string()?));
         }
+        if self.peek() == Some('\'') {
+            return Ok(Node::Text(self.parse_single()?));
+        }
         if self.peek().is_some_and(|c| c.is_ascii_digit()) {
             return self.parse_number();
         }
@@ -492,6 +495,27 @@ impl<'a> Parser<'a> {
             }
         }
     }
+
+    fn parse_single(&mut self) -> Result<String, String> {
+        self.bump();
+        let mut out = String::new();
+        loop {
+            match self.bump() {
+                Some('\'') => return Ok(out),
+                Some('\\') => {
+                    let c = match self.bump() {
+                        Some('\'') => '\'',
+                        Some('\\') => '\\',
+                        Some(c) => return Err(format!("bad escape \\{c}")),
+                        None => return Err("unclosed string".into()),
+                    };
+                    out.push(c);
+                }
+                Some(c) => out.push(c),
+                None => return Err("unclosed string".into()),
+            }
+        }
+    }
 }
 
 /// Walks `path`, loading referenced objects. A ref input's first step is the
@@ -503,14 +527,29 @@ pub fn walk(
 ) -> Result<Val, String> {
     let Some((head, rest)) = path.split_first() else { return Err("empty path".into()) };
     let Some(value) = inputs.get(head) else { return Err(format!("unknown input {head}")) };
-    if rest.is_empty() {
+    descend(value, rest, load)
+}
+
+fn descend(
+    value: &FieldValue,
+    path: &[String],
+    load: &mut impl FnMut(ObjectId) -> Result<Object, String>,
+) -> Result<Val, String> {
+    if path.is_empty() {
         return field_val(value);
     }
-    let obj = match value {
-        FieldValue::Ref(r) => load(r.id)?,
-        _ => return Err(format!("{head} is not a reference")),
-    };
-    walk_from_object(&obj, rest, load)
+    match value {
+        FieldValue::Map(map) => {
+            let (seg, rest) = path.split_first().expect("path is non-empty");
+            let next = map.get(seg).ok_or_else(|| format!("no field {seg}"))?;
+            descend(next, rest, load)
+        }
+        FieldValue::Ref(r) => {
+            let obj = load(r.id)?;
+            walk_from_object(&obj, path, load)
+        }
+        other => Err(format!("cannot read past a {} value", other.kind_name())),
+    }
 }
 
 fn walk_from_object(
@@ -587,6 +626,17 @@ mod tests {
             resolve_path(&["counter".into(), "id".into()], &inputs, |_| Ok(obj.clone())).unwrap(),
             id.to_string()
         );
+    }
+
+    #[test]
+    fn maps_and_single_quotes() {
+        let mut lineage = BTreeMap::new();
+        lineage.insert("target_taint".into(), FieldValue::text("external"));
+        let mut intent = BTreeMap::new();
+        intent.insert("lineage".into(), FieldValue::Map(lineage));
+        let inputs = BTreeMap::from([("intent".into(), FieldValue::Map(intent))]);
+        let expr = parse("intent.lineage.target_taint == 'external'").unwrap();
+        assert!(eval_bool(&expr, &inputs, |_| unreachable!()).unwrap());
     }
 
     fn empty(id: ObjectId) -> Object {

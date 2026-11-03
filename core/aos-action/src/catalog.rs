@@ -7,11 +7,11 @@ use std::path::Path;
 use aos_branch::{Preconditions, ReadView};
 use aos_log::TxRecord;
 use aos_types::schema::{TypeDecl, TypeName, TypeRef};
+use aos_types::yaml;
 use aos_types::{Object, ObjectId};
 
 use crate::decl::{self, ActionDecl};
 use crate::expr;
-use crate::yaml;
 
 #[derive(Clone, Debug, Default)]
 pub struct Catalog {
@@ -30,6 +30,7 @@ impl Catalog {
         for src in [
             include_str!("../decls/sys/ActionViolation.yaml"),
             include_str!("../decls/sys/EgressIntent.yaml"),
+            include_str!("../decls/sys/EgressReceipt.yaml"),
             include_str!("../decls/sys/Job.yaml"),
         ] {
             cat.add_yaml(src).expect("system declaration");

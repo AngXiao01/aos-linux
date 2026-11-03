@@ -56,6 +56,10 @@ impl BlobStore {
         hash
     }
 
+    pub fn get(&self, hash: &Digest) -> Option<&[u8]> {
+        self.blobs.get(hash).map(Vec::as_slice)
+    }
+
     pub fn read(&self, hash: &Digest, offset: u64, len: u64) -> Option<Vec<u8>> {
         let data = self.blobs.get(hash)?;
         let start = usize::try_from(offset).ok()?;

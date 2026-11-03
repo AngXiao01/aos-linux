@@ -188,6 +188,10 @@ impl Tx {
         self.update(g, id, |o| o.tombstone = true)
     }
 
+    pub fn intent_ids(&self) -> &[ObjectId] {
+        &self.intents
+    }
+
     /// Records that this transaction created egress intent `id` (SPEC §11).
     pub fn add_intent(&mut self, id: ObjectId) {
         if !self.intents.contains(&id) {

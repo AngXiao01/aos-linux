@@ -10,13 +10,14 @@ mod context;
 mod decl;
 mod expr;
 mod query;
+mod review;
 mod runtime;
-mod yaml;
 
 pub use catalog::Catalog;
 pub use context::{BlobStore, Violation};
 pub use decl::{ActionDecl, Reversibility, parse_action, parse_type};
-pub use expr::{Expr, parse as parse_expr};
+pub use expr::{Expr, eval_bool, parse as parse_expr};
+pub use review::{Dispatch, IntentReview, IntentView, Review};
 pub use runtime::{Call, Error, IMPORTS, Outcome, Runtime};
 
 pub struct Host {
