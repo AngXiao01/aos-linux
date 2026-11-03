@@ -6,7 +6,7 @@ AOS（agent-native OS）的 Linux 版：在 Linux 内核之上建立独立的 AO
 
 许可是 MIT，全文见 [`LICENSE`](LICENSE)。版权持有人 Ang Xiao，2026。
 
-`main` 上有的是核心库 `core/`，做到 §17 的 M2。镜像、服务拆分、人的界面和 iPhone 确认器还没有目录；那些属于 §A11 的平台里程碑。
+`main` 上有的是核心库 `core/`，做到 §17 的 M3。镜像、服务拆分、人的界面和 iPhone 确认器还没有目录；那些属于 §A11 的平台里程碑。
 
 ## 现状
 
@@ -17,17 +17,16 @@ AOS（agent-native OS）的 Linux 版：在 Linux 内核之上建立独立的 AO
 | M0 | 核心库骨架：类型、对象、CBOR、哈希 | 已落地。`aos-types` |
 | M1 | 日志、事务、分支、变更单、撤销 | 已落地。`aos-log`、`aos-branch`（内存后端，持久化是 `LogStore` 接口） |
 | M2 | 动作声明、WASM 运行时、宿主 ABI、能力令牌 | 已落地。[#1](https://github.com/AngXiao01/aos-linux/pull/1)。`aos-cap`、`aos-action` |
-| M3 | 出口意图、策略引擎、出口闸门、开发确认器 | 未合并。实现在 [#2](https://github.com/AngXiao01/aos-linux/pull/2)，分支 `cursor/m3-egress-policy-1289` |
-| M4–M8 | §17 | 未开始 |
+| M3 | 出口意图、策略引擎、出口闸门、开发确认器 | 已落地。[#2](https://github.com/AngXiao01/aos-linux/pull/2)。`aos-policy`、`aos-confirm`、`aos-egress` |
+| M4 | Agent Host、MCP agent 视图、任务报告 | 未开始。下一步 |
+| M5–M8 | §17 | 未开始 |
 | A-0–A-7 | §A11 | 未开始 |
 
-`main` 上 `intent_create` 只创建 `status: pending` 的 `sys/EgressIntent`，不评估策略，也不对外发送。策略引擎和闸门在 M3。
+接上闸门后，意图在动作事务提交前评估常设规则。`allow` 在事务提交成功之后才发出；`confirm` 保持 pending；`deny` 不发送。没接闸门时，`intent_create` 仍只留下 `pending` 意图。
 
 ## 下一步
 
-最新落地的是 M2。下一步按 §17 做 **M3**：出口意图、策略引擎、出口闸门、开发确认器。验收是 §16.1 的策略测试和出口测试。代码在 [#2](https://github.com/AngXiao01/aos-linux/pull/2)，等合并进 `main`。
-
-M3 进入 `main` 之后，§17 规定的下一步是 **M4**：Agent Host、MCP agent 视图、任务报告。验收是让 agent 完成一个纯内部任务并送审。范围以该节为准。
+最新落地的是 M3。下一步按 §17 做 **M4**：Agent Host、MCP agent 视图、任务报告。验收是让 agent 完成一个纯内部任务并送审。范围以该节为准。
 
 ## 给实现 agent
 
