@@ -9,8 +9,9 @@ use aos_types::id::is_ident;
 use aos_types::schema::{FieldDecl, FieldKind, RelationDecl, TypeDecl, TypeName, ViewHint};
 use aos_types::template::Template;
 
+use aos_types::yaml::{self, Yaml};
+
 use crate::expr::{self, Expr};
-use crate::yaml::{self, Yaml};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reversibility {

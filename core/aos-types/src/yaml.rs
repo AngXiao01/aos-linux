@@ -288,6 +288,10 @@ impl<'a> Parser<'a> {
             let value = if matches!(self.peek(), None | Some('\n') | Some('#')) {
                 self.finish_line()?;
                 self.parse_block(indent + 2)?
+            } else if self.line_starts_key() {
+                // `- key: value` begins a nested map. Later keys share the
+                // column of this key (`    limits:` under `  - rights:`).
+                self.parse_map_from_key(self.column())?
             } else {
                 let v = self.parse_inline(false)?;
                 self.finish_line()?;
@@ -296,6 +300,58 @@ impl<'a> Parser<'a> {
             items.push(value);
         }
         Ok(Yaml::Seq(items))
+    }
+
+    /// True when the rest of this line is `key:` rather than a plain item.
+    fn line_starts_key(&self) -> bool {
+        let line = self.rest().split('\n').next().unwrap_or("");
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.starts_with(['{', '[', '"', '\'']) {
+            return false;
+        }
+        match line.find(':') {
+            Some(i) => {
+                let key = line[..i].trim();
+                !key.is_empty() && !key.contains(' ') && !key.contains('{')
+            }
+            None => false,
+        }
+    }
+
+    fn column(&self) -> usize {
+        self.s[..self.i].rsplit('\n').next().unwrap_or("").chars().count()
+    }
+
+    /// Like [`parse_map`](Self::parse_map), but the first key is already under the cursor.
+    fn parse_map_from_key(&mut self, indent: usize) -> Result<Yaml, Error> {
+        let mut items = Vec::new();
+        loop {
+            if !items.is_empty() {
+                self.skip_blank();
+                if self.eof() || !self.starts_key(indent) {
+                    break;
+                }
+                self.consume_indent(indent)?;
+            }
+            let key = self.parse_key()?;
+            if items.iter().any(|(k, _)| k == &key) {
+                return Err(self.err(format!("duplicate key {key}")));
+            }
+            if self.bump() != Some(':') {
+                return Err(self.err("expected ':'"));
+            }
+            self.skip_spaces();
+            let value = if matches!(self.peek(), None | Some('\n') | Some('#')) {
+                self.finish_line()?;
+                self.parse_block(indent + 1)?
+            } else {
+                let v = self.parse_inline(false)?;
+                self.finish_line()?;
+                v
+            };
+            items.push((key, value));
+        }
+        Ok(Yaml::Map(items))
     }
 
     fn parse_key(&mut self) -> Result<String, Error> {
@@ -588,5 +644,25 @@ threshold: { float: {min: 0.5, max: 1.0}, default: 0.95 }
         assert_eq!(y.need("preconditions").unwrap().as_seq().unwrap()[0].as_str().unwrap(), "version.sample_count > 0");
         assert!(y.need("effects").unwrap().get("egress").unwrap().as_seq().unwrap().is_empty());
         assert_eq!(y.get("threshold").unwrap().get("default").unwrap().as_f64().unwrap(), 0.95);
+    }
+
+    #[test]
+    fn sequence_item_can_be_a_map() {
+        let y = parse(
+            r#"
+grants:
+  - rights: ["ml.*"]
+    limits: {steps: 1}
+    max_ttl: 12h
+rules:
+  - allow: { channel: "notify:*" }
+"#,
+        )
+        .unwrap();
+        let grant = &y.need("grants").unwrap().as_seq().unwrap()[0];
+        assert_eq!(grant.need("rights").unwrap().as_seq().unwrap()[0].as_str().unwrap(), "ml.*");
+        assert_eq!(grant.need("max_ttl").unwrap().as_str().unwrap(), "12h");
+        let rule = &y.need("rules").unwrap().as_seq().unwrap()[0];
+        assert_eq!(rule.need("allow").unwrap().need("channel").unwrap().as_str().unwrap(), "notify:*");
     }
 }

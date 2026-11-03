@@ -67,5 +67,6 @@ view_hint:
     assert_eq!(cat.action("demo.notify.draft@1").unwrap().egress, ["notify:*"]);
     assert!(cat.type_decl(&"sys/ActionViolation@1".parse().unwrap()).is_some());
     assert!(cat.type_decl(&"sys/EgressIntent@1".parse().unwrap()).is_some());
+    assert!(cat.type_decl(&"sys/EgressReceipt@1".parse().unwrap()).is_some());
     assert!(cat.type_decl(&"sys/Job@1".parse().unwrap()).is_some());
 }

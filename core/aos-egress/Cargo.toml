@@ -1,0 +1,20 @@
+[package]
+name = "aos-egress"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Egress intents and the gate. Transport is a trait (SPEC §11)"
+
+[dependencies]
+aos-types = { path = "../aos-types" }
+aos-log = { path = "../aos-log" }
+aos-branch = { path = "../aos-branch" }
+aos-cap = { path = "../aos-cap" }
+aos-policy = { path = "../aos-policy" }
+aos-confirm = { path = "../aos-confirm" }
+aos-action = { path = "../aos-action" }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "arithmetic"] }
+
+[dev-dependencies]
+wat = "1"

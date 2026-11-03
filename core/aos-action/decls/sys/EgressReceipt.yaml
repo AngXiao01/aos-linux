@@ -1,0 +1,12 @@
+type: sys/EgressReceipt
+major: 1
+fields:
+  intent: { text: {max: 80}, required: true }
+  channel: { text: {max: 200}, required: true }
+  target: { text: {max: 2000}, required: true }
+  payload_hash: { text: {max: 80}, required: true }
+  ok: { bool: {}, required: true }
+  detail: { text: {max: 2000}, required: true }
+view_hint:
+  title: "{channel}"
+  primary_fields: [channel, ok]

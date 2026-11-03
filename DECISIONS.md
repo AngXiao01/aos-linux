@@ -44,3 +44,9 @@
 2026-10-31 | `aos_query` 在当前分支快照上全表扫描，支持 from/where/select/order_by/limit/cursor（limit 最大 200，默认 50）。`member_of` 和 `aggregate` 返回错误。幂等键渲染后写入事务 inputs 的 `idempotency_key`；同一分支已有相同动作和相同键时直接返回上次事务，不再执行、不再扣额度 | 查询索引和数据集成员表属于后面的里程碑 | 可逆
 2026-10-31 | 动作产生的对象，污点取读集与调用参数 `literal_taint` 的上界，`derived_from` 记下读到的版本。`literal_taint` 默认 `clean`，由 M4 的 Agent Host 按模型会话填写 | §10。M2 还没有 Agent Host | 可逆
 2026-10-31 | Graph 增加 `object_ids` 与 `transactions`，Tx 增加 `staged_ids` 与 `peek`。只读，不改变日志格式 | 宿主查询和幂等查找需要看见分支上的对象和事务 | 可逆
+2026-11-03 | M3 增加 `aos-policy`、`aos-confirm`、`aos-egress`。YAML 子集解析器从 `aos-action` 挪到 `aos-types`，动作声明和常设规则共用一份。表达式增加单引号字符串，并允许路径走进 map，这样 `intent.lineage.target_taint == 'external'` 能求值 | §8.7 的表达式同时用于前置条件和常设规则的 `when`；策略文档是规格里的 YAML | 可逆
+2026-11-03 | 没接闸门时，`intent_create` 仍只留下 `pending` 意图。接上 `Gate` 后，动作事务提交前评估策略：`deny` 写成 denied，`confirm` 保持 pending，`allow` 先写成 allowed。真正的 `Transport::send` 只发生在该事务提交成功之后，由随后的系统事务把状态改成 executed 或 failed，并写入 `sys/EgressReceipt`（外部来源、外部污点）。提交失败则取消本批预留，不发送 | 动作事务若提交失败，外部效果不能已经发生。核心库里只有闸门调用 `Transport` | 可逆
+2026-11-03 | 常设规则整份签名，`signed_by` 是 `iphone:` 加压缩 P-256 公钥的十六进制。改任何规则都使签名失效。文档由 Gate 持有，不写入日志 | 与能力令牌同一条曲线；额度账本同样留到服务化再持久化 | 可逆，但会改变已有策略签名
+2026-11-03 | 审批请求的 summary 与 preview 只由 Confirm Service 从通道、目标、载荷和代价生成。`agent_summary` 单独存放，标注为「agent 自述」，不进入 summary。闸门执行前重算这些文字和载荷哈希，不一致就拒绝且不发送。签名和 nonce 只用一次；过期在消耗签名之前拒绝 | §11.4、§12.3。防止审的是 A、发出去的是 B，也防止把 agent 自述当成系统文字 | 可逆
+2026-11-03 | 开发确认器是磁盘上的软件密钥加 `aos-dev-confirm`。`debug_assertions` 关闭时拒绝生成、加载和签名。横幅常量是「不安全：开发确认器」，给人的界面（M5）显示；本里程碑不做人的界面，也不做 iPhone app | §12.7。release 构建无法启用 | 可逆
+2026-11-03 | M3 的 Confirm Service 只生成 `kind: egress` 的审批请求。`main` 上的 confirm 意图立刻排入单项请求，`diff_hash` 用载荷绑定哈希，因为 main 没有变更单。任务分支上的 confirm 一直 pending，直到调用方拿着审批来 `release`。未登记通道的外部可逆性按 irreversible；已登记的取声明和意图里更不可逆的一侧。当日金额只累计发送成功的代价，同一批 allow 用预留避免超出 `max_cost_cny_per_day` | §11.2、§11.3。任务送审时的批量审批属于 M4；通道的代价模型留给适配器 | 可逆

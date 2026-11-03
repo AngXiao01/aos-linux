@@ -1,0 +1,15 @@
+[package]
+name = "aos-confirm"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Approval requests, signature checks and the dev confirmer (SPEC §12)"
+
+[dependencies]
+aos-types = { path = "../aos-types" }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "arithmetic"] }
+
+[[bin]]
+name = "aos-dev-confirm"
+path = "src/bin/aos-dev-confirm.rs"

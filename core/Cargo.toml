@@ -1,6 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["aos-types", "aos-log", "aos-branch", "aos-cap", "aos-action"]
+members = [
+    "aos-types",
+    "aos-log",
+    "aos-branch",
+    "aos-cap",
+    "aos-action",
+    "aos-policy",
+    "aos-confirm",
+    "aos-egress",
+]
 
 [workspace.package]
 edition = "2024"

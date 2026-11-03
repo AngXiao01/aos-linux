@@ -15,6 +15,7 @@ pub mod template;
 pub mod time;
 pub mod ulid;
 pub mod value;
+pub mod yaml;
 
 pub use codec::{FromCbor, ToCbor};
 pub use digest::Digest;

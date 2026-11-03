@@ -7,7 +7,7 @@ use aos_branch::{Graph, NewObject, ReadView, Tx, TxMeta};
 use aos_cap::Cost;
 use aos_log::{BranchName, LogStore};
 use aos_types::schema::{FieldKind, TypeRef};
-use aos_types::{Actor, FieldValue, Object, ObjectId, Sensitivity, Taint, TxId};
+use aos_types::{Actor, Digest, FieldValue, FromCbor, Object, ObjectId, Origin, Sensitivity, Taint, Timestamp, TxId};
 use wasmtime::{Config, Engine, Linker, Module, Store};
 
 use crate::Host;
@@ -16,6 +16,7 @@ use crate::catalog::Catalog;
 use crate::context::{BlobStore, Ctx, Violation};
 use crate::decl::ActionDecl;
 use crate::expr;
+use crate::review::{Dispatch, IntentReview, IntentView, Review};
 
 pub const IMPORTS: &[&str] = &[
     "input",
@@ -69,6 +70,7 @@ pub enum Error {
     Violation(Violation),
     Trap(String),
     Failed(String),
+    Egress(String),
 }
 
 impl std::fmt::Display for Error {
@@ -82,6 +84,7 @@ impl std::fmt::Display for Error {
             Error::Violation(v) => write!(f, "violation {}: {}", v.kind, v.detail),
             Error::Trap(m) => write!(f, "trap: {m}"),
             Error::Failed(m) => write!(f, "{m}"),
+            Error::Egress(m) => write!(f, "egress: {m}"),
         }
     }
 }
@@ -110,6 +113,18 @@ impl Runtime {
     }
 
     pub fn invoke<S: LogStore>(&mut self, graph: &mut Graph<S>, call: Call) -> Result<Outcome, Error> {
+        self.invoke_reviewed(graph, call, &mut NoReview)
+    }
+
+    /// Like [`invoke`](Self::invoke), then asks `review` to judge every new
+    /// egress intent before the action transaction commits (SPEC §11.3).
+    /// `allow` is sent only after that commit succeeds.
+    pub fn invoke_reviewed<S: LogStore>(
+        &mut self,
+        graph: &mut Graph<S>,
+        call: Call,
+        review: &mut dyn IntentReview,
+    ) -> Result<Outcome, Error> {
         let action = self
             .catalog
             .action(&call.action)
@@ -206,14 +221,24 @@ impl Runtime {
             let _ = self.record(graph, &call, &violation);
             return Err(Error::Precondition(reason));
         }
+        let allowed = match judge(graph, &mut tx, &self.blobs, &call, review) {
+            Ok(allowed) => allowed,
+            Err(e) => {
+                review.commit_failed();
+                self.caps.refund(&call.capability, &cost);
+                return Err(e);
+            }
+        };
         let writes = tx.staged_ids().to_vec();
         let tx_id = match graph.commit(tx) {
             Ok(id) => id,
             Err(e) => {
+                review.commit_failed();
                 self.caps.refund(&call.capability, &cost);
                 return Err(Error::Failed(e.to_string()));
             }
         };
+        deliver(graph, &call.branch, &allowed, review)?;
         Ok(Outcome { tx: tx_id, writes, replay: false })
     }
 
@@ -293,6 +318,146 @@ impl Runtime {
         graph.commit(tx).map_err(|e| Error::Failed(e.to_string()))?;
         Ok(id)
     }
+}
+
+struct NoReview;
+
+impl IntentReview for NoReview {
+    fn review(&mut self, _: &IntentView) -> Result<Review, String> {
+        Ok(Review::Skip)
+    }
+
+    fn dispatch(&mut self, _: &IntentView) -> Result<Dispatch, String> {
+        Err("no egress gate".into())
+    }
+}
+
+fn judge<S: LogStore>(
+    graph: &Graph<S>,
+    tx: &mut Tx,
+    blobs: &BlobStore,
+    call: &Call,
+    review: &mut dyn IntentReview,
+) -> Result<Vec<IntentView>, Error> {
+    let mut allowed = Vec::new();
+    let on_main = call.branch.is_main();
+    for id in tx.intent_ids().to_vec() {
+        let view = intent_view(tx, blobs, id, on_main)?;
+        match review.review(&view).map_err(Error::Egress)? {
+            Review::Skip => {}
+            Review::Confirm { rule } => annotate(graph, tx, id, "pending", "confirm", &rule)?,
+            Review::Deny { rule } => annotate(graph, tx, id, "denied", "deny", &rule)?,
+            Review::Allow { rule } => {
+                annotate(graph, tx, id, "allowed", "allow", &rule)?;
+                allowed.push(view);
+            }
+        }
+    }
+    Ok(allowed)
+}
+
+fn annotate<S: LogStore>(
+    graph: &Graph<S>,
+    tx: &mut Tx,
+    id: ObjectId,
+    status: &str,
+    decision: &str,
+    rule: &str,
+) -> Result<(), Error> {
+    let rule: String = rule.chars().take(200).collect();
+    tx.update(graph, id, |o| {
+        o.fields.insert("status".into(), FieldValue::text(status));
+        o.fields.insert("policy_decision".into(), FieldValue::text(decision));
+        o.fields.insert("policy_rule".into(), FieldValue::text(rule.clone()));
+    })
+    .map_err(|e| Error::Failed(e.to_string()))
+}
+
+fn intent_view(tx: &Tx, blobs: &BlobStore, id: ObjectId, on_main: bool) -> Result<IntentView, Error> {
+    let obj = tx.peek(id).cloned().ok_or_else(|| Error::Failed(format!("intent {id} is not staged")))?;
+    let text = |name: &str| -> Result<String, Error> {
+        match obj.fields.get(name) {
+            Some(FieldValue::Text(s)) => Ok(s.clone()),
+            _ => Err(Error::Failed(format!("intent {id} has no {name}"))),
+        }
+    };
+    let payload_hash: Digest = text("payload_hash")?.parse().map_err(|_| Error::Failed("payload hash".into()))?;
+    let FieldValue::Blob(digest) = obj.fields.get("payload").ok_or_else(|| Error::Failed("payload".into()))? else {
+        return Err(Error::Failed("payload is not a blob".into()));
+    };
+    let bytes = blobs.get(digest).ok_or_else(|| Error::Failed("payload blob missing".into()))?.to_vec();
+    let payload = FieldValue::from_canonical_bytes(&bytes).map_err(|e| Error::Failed(e.to_string()))?;
+    let cost_cents = match obj.fields.get("cost_cents") {
+        Some(FieldValue::Int(n)) if *n >= 0 => *n as u64,
+        _ => 0,
+    };
+    let agent_summary = match obj.fields.get("agent_summary") {
+        Some(FieldValue::Text(s)) => Some(s.clone()),
+        _ => None,
+    };
+    Ok(IntentView {
+        id,
+        channel: text("channel")?,
+        target: text("target")?,
+        payload,
+        payload_hash,
+        cost_cents,
+        sensitivity: obj.sensitivity,
+        target_taint: text("target_taint")?.parse().map_err(|_| Error::Failed("target taint".into()))?,
+        payload_taint: text("payload_taint")?.parse().map_err(|_| Error::Failed("payload taint".into()))?,
+        agent_summary,
+        reversibility: text("external_reversibility")?,
+        on_main,
+    })
+}
+
+fn deliver<S: LogStore>(
+    graph: &mut Graph<S>,
+    branch: &BranchName,
+    allowed: &[IntentView],
+    review: &mut dyn IntentReview,
+) -> Result<(), Error> {
+    for view in allowed {
+        let dispatch = review.dispatch(view).map_err(Error::Egress)?;
+        write_receipt(graph, branch, view, dispatch.ok, &dispatch.detail, dispatch.at_ms)?;
+    }
+    Ok(())
+}
+
+fn write_receipt<S: LogStore>(
+    graph: &mut Graph<S>,
+    branch: &BranchName,
+    view: &IntentView,
+    ok: bool,
+    detail: &str,
+    at_ms: i64,
+) -> Result<(), Error> {
+    let mut tx = graph
+        .begin(branch, TxMeta::new(Actor::System).action("sys.egress.receipt@1"))
+        .map_err(|e| Error::Failed(e.to_string()))?;
+    let status = if ok { "executed" } else { "failed" };
+    tx.update(graph, view.id, |o| {
+        o.fields.insert("status".into(), FieldValue::text(status));
+    })
+    .map_err(|e| Error::Failed(e.to_string()))?;
+    let version = tx.peek(view.id).map(|o| o.version).ok_or_else(|| Error::Failed("intent vanished".into()))?;
+    let adapter = view.channel.split(':').next().filter(|s| aos_types::id::is_slug(s)).unwrap_or("egress");
+    let at = Timestamp::from_unix_ms(at_ms).unwrap_or_else(|| Timestamp::from_unix_ms(0).expect("epoch"));
+    let detail: String = detail.chars().take(2000).collect();
+    let mut receipt = NewObject::new("sys/EgressReceipt@1".parse().unwrap())
+        .field("intent", FieldValue::text(view.id.to_string()))
+        .field("channel", FieldValue::text(&view.channel))
+        .field("target", FieldValue::text(&view.target))
+        .field("payload_hash", FieldValue::text(view.payload_hash.to_string()))
+        .field("ok", FieldValue::Bool(ok))
+        .field("detail", FieldValue::text(detail))
+        .derived_from(aos_types::ObjRef::at(view.id, version))
+        .taint(Taint::External);
+    receipt.sensitivity = view.sensitivity;
+    receipt.origin = Origin::External { adapter: adapter.to_owned(), external_id: view.id.to_string(), fetched_at: at };
+    tx.create(graph, receipt);
+    graph.commit(tx).map_err(|e| Error::Failed(e.to_string()))?;
+    Ok(())
 }
 
 fn illegal_import(module: &Module) -> Option<Violation> {

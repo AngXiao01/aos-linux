@@ -27,6 +27,10 @@ fields:
     enum:
       values: [pending, allowed, denied, executed, failed]
     required: true
+  policy_decision:
+    enum:
+      values: [allow, confirm, deny]
+  policy_rule: { text: {max: 200} }
 view_hint:
   title: "{channel}"
   primary_fields: [channel, status, target]
